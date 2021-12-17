@@ -1,14 +1,20 @@
+import lightgbm
+from torch.utils.data.dataloader import DataLoader
 from utils import *
 from model import ModelWithLoss
 from data_loader import numerai_loader, load_example_validation_predictions, load_data, load_riskiest_features
 from torch.optim import SGD
 from torch_optimizer import RAdam
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+from lightgbm import LGBMRegressor
+from sklearn.multioutput import MultiOutputRegressor
 import torch
 import os
 import argparse
 import random
 from tqdm import tqdm
+from typing import List, Union
+from yacs.config import CfgNode
 import numpy as np
 import pandas as pd
 import warnings
@@ -20,7 +26,7 @@ TARGET_COL = "target"
 ERA_COL = "era"
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="pytorch training code")
     parser.add_argument("--config_file", type=str, default='',
                         metavar="FILE", help='path to config file')
@@ -31,7 +37,13 @@ def parse_args():
     return parser.parse_args()
 
 
-def era_boost_train(args, cfg):
+def era_boost_train(args: argparse.Namespace, cfg: CfgNode) -> None:
+    """training models by era-boosted train
+    
+    Args:
+        args (argparse.Namespace): argparse namespace
+        cfg (CfgNode): cfg for parameters
+    """
     proportion = 0.5
 
     models = []
@@ -68,7 +80,18 @@ def era_boost_train(args, cfg):
         save_one_model(cfg, model, os.path.join(cfg.OUTPUT_DIR, f"model{i}"))
 
 
-def time_series_CV(args, cfg, save_model=True):
+def time_series_CV(args: argparse.Namespace, cfg: CfgNode, save_model: bool = True) -> float:
+    """training models by time-series cross-validation
+    and calculate cv score
+
+    Args:
+        args (argparse.Namespace): argparse namespace
+        cfg (CfgNode): cfg for parameters
+        save_model (bool, optional): flag for whether saving models. Defaults to True.
+
+    Returns:
+        float: cross-validation score based on Sharpe
+    """
     num_folds = cfg.MODEL.CV_ITER
 
     models = []
@@ -107,14 +130,30 @@ def time_series_CV(args, cfg, save_model=True):
     return np.mean(cv_scores)
 
 
-def train_one_model(args, cfg):
+def train_one_model(args: argparse.Namespace, cfg: CfgNode) -> None:
+    """training one model
+
+    Args:
+        args (argparse.Namespace): argparse namespace
+        cfg (CfgNode): cfg for parameters
+    """
     data_loader = {"train": numerai_loader(cfg, "train")}
     model = train(args=args, cfg=cfg, data_loader=data_loader,
                   model=Build_Model(args, cfg))
     save_one_model(cfg, model, os.path.join(cfg.OUTPUT_DIR, f"model"))
 
 
-def save_one_model(cfg, model, path):
+def save_one_model(cfg: CfgNode, model: Union[LGBMRegressor, ModelWithLoss], path: str):
+    """save one model
+
+    Args:
+        cfg (CfgNode): cfg for parameters
+        model ([type]): GBDT model or Pytorch NN model
+        path (str): path to saving destination
+
+    Raises:
+        ValueError: unknown model type
+    """
     if cfg.MODEL.TYPE == "gbdt":
         import pickle
         postfix = ".pkl"
@@ -125,10 +164,20 @@ def save_one_model(cfg, model, path):
     else:
         raise ValueError(f"unknown model type {cfg.MODEL.TYPE}")
 
-def Build_Model(args, cfg):
+def Build_Model(args: argparse.Namespace, cfg: CfgNode) -> Union[LGBMRegressor, ModelWithLoss]:
+    """build GBDT or Pytorch NN model
+
+    Args:
+        args (argparse.Namespace): argparse namespace
+        cfg (CfgNode): cfg for parameters
+
+    Raises:
+        ValueError: unknown model type
+
+    Returns:
+        Union[LGBMRegressor, ModelWithLoss]: GBDT or Pytorch NN model
+    """
     if cfg.MODEL.TYPE == "gbdt":
-        from lightgbm import LGBMRegressor
-        from sklearn.multioutput import MultiOutputRegressor
         params = {"max_depth": cfg.MODEL.GBDT.MAX_DEPTH,
                   "learning_rate": cfg.MODEL.GBDT.LR,
                   "n_estimators": cfg.MODEL.GBDT.N_ESTIMATORS,
@@ -144,13 +193,29 @@ def Build_Model(args, cfg):
 
 
 def train(**kwargs):
+    """training models based on model type
+
+    Returns:
+        [type]: trained GBDT or Pytorch NN model
+    """
     if kwargs['cfg'].MODEL.TYPE == "gbdt":
         return train_GBDT(**kwargs)
     elif kwargs['cfg'].MODEL.TYPE == "mlp":
         return train_NN(**kwargs)
 
 
-def train_GBDT(args, cfg, data_loader, model):
+def train_GBDT(args: argparse.Namespace, cfg: CfgNode, data_loader: DataLoader, model: LGBMRegressor) -> LGBMRegressor:
+    """train gbdt model
+
+    Args:
+        args (argparse.Namespace): argparse namespace
+        cfg (CfgNode): cfg for parameters
+        data_loader (DataLoader): pytorch dataloader
+        model (LGBMRegressor): gbdt model to train
+
+    Returns:
+        LGBMRegressor: trained gbdt model
+    """
     dataset = data_loader["train"].dataset
     df_train = dataset.df
     features = dataset.features
@@ -159,9 +224,18 @@ def train_GBDT(args, cfg, data_loader, model):
     return model
 
 
-def train_NN(args, cfg, data_loader, model):
+def train_NN(args: argparse.Namespace, cfg: CfgNode, data_loader: DataLoader, model: ModelWithLoss) -> ModelWithLoss:
+    """train pytorch NN model
 
-    # print(model)
+    Args:
+        args (argparse.Namespace): argparse namespace
+        cfg (CfgNode): cfg for parameters
+        data_loader (DataLoader): pytorch dataloader
+        model (ModelWithLoss): pytorch NN model to train
+
+    Returns:
+        ModelWithLoss: trained NN model
+    """
 
     if cfg.SOLVER.OPTIMIZER == "radam":
         optimizer = RAdam(filter(lambda p: p.requires_grad, model.parameters()),
@@ -209,7 +283,17 @@ def train_NN(args, cfg, data_loader, model):
     return model
 
 
-def val(args, cfg, model):
+def val(args: argparse.Namespace, cfg: CfgNode, model: Union[LGBMRegressor, ModelWithLoss]) -> float:
+    """performs validation on numerai validation set
+
+    Args:
+        args (argparse.Namespace): argparse namespace
+        cfg (CfgNode): cfg for parameters
+        model ([type]): GBDT model or Pytorch NN model
+
+    Returns:
+        float: Sharpe value
+    """
     val_loader = numerai_loader(cfg, split="val", rand=False)
     test_pred = inference_on_data(cfg, model, data_loader=val_loader)
 
@@ -223,7 +307,17 @@ def val(args, cfg, model):
     return sharpe
 
 
-def ensemble_on_era(df, preds, riskiest_features):
+def ensemble_on_era(df: pd.DataFrame, preds: List, riskiest_features: List[str]) -> pd.DataFrame:
+    """ensemble predictions based on each era
+
+    Args:
+        df (pd.DataFrame): dataframe
+        preds (List): list of predictions by models
+        riskiest_features (List[str]): riskiest features to neutralize
+
+    Returns:
+        pd.DataFrame: dataframe containing ensembled prediction
+    """
     pred_cols = set()
     for i, pred in enumerate(preds):
         cur_col = f"pred{i}"
@@ -241,7 +335,20 @@ def ensemble_on_era(df, preds, riskiest_features):
     return df
 
 
-def inference_on_data(cfg, model, data_loader):
+def inference_on_data(cfg: CfgNode, model: Union[LGBMRegressor, ModelWithLoss], data_loader: DataLoader) -> np.ndarray:
+    """inference on data
+
+    Args:
+        cfg (CfgNode): cfg for parameters
+        model (Union[LGBMRegressor, ModelWithLoss]): GBDT model or Pytorch NN model
+        data_loader (DataLoader): pytorch dataloader
+
+    Raises:
+        ValueError: unknown model types
+
+    Returns:
+        np.ndarray: prediction
+    """
     if cfg.MODEL.TYPE == "gbdt":
         return inference_GBDT(cfg, model, data_loader)
     elif cfg.MODEL.TYPE == "mlp":
@@ -249,14 +356,34 @@ def inference_on_data(cfg, model, data_loader):
     else:
         raise ValueError(f"unknown model type {cfg.MODEL.TYPE}")
 
-def inference_GBDT(cfg, model, data_loader):
+def inference_GBDT(cfg: CfgNode, model: Union[LGBMRegressor, ModelWithLoss], data_loader: DataLoader) -> np.ndarray:
+    """inference gbdt model on data
+
+    Args:
+        cfg (CfgNode): cfg for parameters
+        model (Union[LGBMRegressor, ModelWithLoss]): GBDT model or Pytorch NN model
+        data_loader (DataLoader): pytorch dataloader
+
+    Returns:
+        np.ndarray: prediction
+    """
     dataset = data_loader.dataset
     pred = model.predict(dataset.df[dataset.features])
     pred = np.mean(pred, axis=-1)
     return pred.squeeze()
 
 
-def inference_NN(cfg, model, data_loader):
+def inference_NN(cfg: CfgNode, model: Union[LGBMRegressor, ModelWithLoss], data_loader: DataLoader) -> np.ndarray:
+    """inference pytorch NN model on data
+
+    Args:
+        cfg (CfgNode): cfg for parameters
+        model (Union[LGBMRegressor, ModelWithLoss]): GBDT model or Pytorch NN model
+        data_loader (DataLoader): pytorch dataloader
+
+    Returns:
+        np.ndarray: prediction
+    """
     pred = []
     for data_dict in data_loader:
         with torch.no_grad():
@@ -267,7 +394,16 @@ def inference_NN(cfg, model, data_loader):
     return pred.squeeze()
 
 
-def load_models(args, cfg):
+def load_models(args: argparse.Namespace, cfg: CfgNode) -> List[Union[LGBMRegressor, ModelWithLoss]]:
+    """load saved models
+
+    Args:
+        args (argparse.Namespace): argparse namespace
+        cfg (CfgNode): cfg for parameters
+
+    Returns:
+        List[Union[LGBMRegressor, ModelWithLoss]]: list of loaded models
+    """
     models = []
 
     if cfg.MODEL.ERABOOST:
@@ -282,7 +418,20 @@ def load_models(args, cfg):
     return models
 
 
-def load_one_model(args, cfg, path):
+def load_one_model(args: argparse.Namespace, cfg: CfgNode, path: str) -> Union[LGBMRegressor, ModelWithLoss]:
+    """load one model
+
+    Args:
+        args (argparse.Namespace): argparse namespace
+        cfg (CfgNode): cfg for parameters
+        path (str): path to the saved model
+
+    Raises:
+        ValueError: unknown model type
+
+    Returns:
+        Union[LGBMRegressor, ModelWithLoss]: loaded model
+    """
     if cfg.MODEL.TYPE == "gbdt":
         import pickle
         postfix = ".pkl"
@@ -299,7 +448,14 @@ def load_one_model(args, cfg, path):
     return model
 
 
-def test(args, cfg):
+def test(args: argparse.Namespace, cfg: CfgNode) -> None:
+    """performs validation on numerai validation set
+    and save prediction for diagnostic tools
+    
+    Args:
+        args (argparse.Namespace): argparse namespace
+        cfg (CfgNode): cfg for parameters
+    """
     models = load_models(args, cfg)
 
     napi = create_api()
@@ -327,7 +483,16 @@ def test(args, cfg):
         cfg.OUTPUT_DIR, "validation.csv"), header=True)
 
 
-def create_submission(args, cfg):
+def create_submission(args: argparse.Namespace, cfg: CfgNode) -> str:
+    """inferece models and save prediction
+
+    Args:
+        args (argparse.Namespace): argparse namespace
+        cfg (CfgNode): cfg for parameters
+
+    Returns:
+        str: path to the saved prediction
+    """
     napi = create_api()
     if args.config_file in ["config/example"]:
         n_round = napi.get_current_round()
@@ -351,7 +516,15 @@ def create_submission(args, cfg):
 
     return path
 
-def fix_seed(cfg):
+def fix_seed(cfg: CfgNode):
+    """fix seed for reproducibility
+
+    Args:
+        cfg (CfgNode): cfg for parameters
+
+    Raises:
+        Exception: No GPU
+    """
     random.seed(cfg.SEED)
     np.random.seed(cfg.SEED)
     torch.manual_seed(cfg.SEED)
@@ -363,18 +536,22 @@ def fix_seed(cfg):
         raise Exception("GPU not found")
 
 
-def submit(args):
+def submit(args: argparse.Namespace):
+    """
+    create submission
+    choose good performance model based on past rounds
+    submit via numerapi
+
+    please fill "model{i}" with your model name
+
+    Args:
+        args (argparse.Namespace): argparse namespace
+    """
     
-    dict_model = {"sapphire_": "config/gbdt_mda.yml",
-                  "diamond_": "config/mlp_mda.yml",
-                  "pearl_": "config/mlp_mda_cv.yml",
-                  "platinum_": "config/mlp_mda_optuned.yml",
-                  "black_": "config/example",
-                  "white_": "config/gbdt_mda_cv_multitask.yml",
-                  "x_": "config/mlp_mda_fe.yml",
-                  "y_": "config/mlp_mda_multitask.yml"}
+    dict_model = {"model3": "config/mlp.yml",
+                  "model4": "config/gbdt.yml",
+                  "model5": "config/example"}
     
-    #dict_model = {"sapphire_": "config/gbdt_mda.yml"}
     dict_path = {}
     for k in dict_model:
         args.config_file = dict_model[k]
@@ -389,8 +566,8 @@ def submit(args):
         performance_2xmmc = np.mean([round['corr'] + 2*round['mmc'] for round in napi.round_model_performances(k)[:4] if round['payout'] is not None])
         dict_performance[k] = performance if not np.isnan(performance) else -0.25
         dict_performance_2xmmc[k] = performance_2xmmc if not np.isnan(performance_2xmmc) else -0.25
-    dict_path["emerald_"] = dict_path[sorted(dict_performance_2xmmc, key=dict_performance_2xmmc.get)[-1]]
-    dict_path["ruby_"] = dict_path[sorted(dict_performance, key=dict_performance.get)[-1]]
+    dict_path["model1"] = dict_path[sorted(dict_performance_2xmmc, key=dict_performance_2xmmc.get)[-1]]
+    dict_path["model2"] = dict_path[sorted(dict_performance, key=dict_performance.get)[-1]]
     
     model_ids = napi.get_models()
 
@@ -399,10 +576,28 @@ def submit(args):
         napi.upload_predictions(dict_path[k], model_id=model_id, version=2)
             
         
-def tune(args, cfg):
+def tune(args: argparse.Namespace, cfg: CfgNode):
+    """tuning hyperparameters by optuna
+
+    Args:
+        args (argparse.Namespace): argparse namespace
+        cfg (CfgNode): cfg for parameters
+
+    Raises:
+        ValueError: unknown model type
+    """
     import optuna
 
-    def objective_with_arg(args, cfg):
+    def objective_with_arg(args: argparse.Namespace, cfg: CfgNode):
+        """objective function with arg
+
+        Args:
+            args (argparse.Namespace): argparse namespace
+            cfg (CfgNode): cfg for parameters
+
+        Raises:
+            ValueError: unknown model type
+        """
         _cfg = cfg.clone()
         _cfg.defrost()
 

@@ -8,7 +8,7 @@ from yacs.config import CfgNode as CN
 
 _C = CN()
 
-_C.SEED = 12345
+_C.SEED = 1
 
 _C.NUMERAI = CN()
 _C.NUMERAI.ID = "YOUR NUMERAI ID"

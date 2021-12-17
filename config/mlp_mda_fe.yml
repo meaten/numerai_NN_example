@@ -1,0 +1,8 @@
+MODEL:
+  TYPE: "mlp"
+
+FE:
+  APPLY: True
+
+MDA:
+  APPLY: True

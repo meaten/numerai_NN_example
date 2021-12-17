@@ -1,0 +1,5 @@
+MODEL:
+  TYPE: "mlp"
+
+MDA:
+  APPLY: True

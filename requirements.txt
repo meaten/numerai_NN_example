@@ -1,0 +1,12 @@
+numpy
+pandas
+yacs
+optuna
+scikit-learn
+lightgbm
+torch
+torch_optimizer
+pyarrow
+fastparquet
+
+numerapi

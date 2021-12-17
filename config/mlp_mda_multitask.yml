@@ -1,0 +1,7 @@
+MODEL:
+  TYPE: "mlp"
+  DIM_OUT: 20
+  ERABOOST: True
+
+MDA:
+  APPLY: True

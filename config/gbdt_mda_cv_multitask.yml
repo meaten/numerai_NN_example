@@ -1,0 +1,8 @@
+MODEL:
+  TYPE: "gbdt"
+  DIM_OUT: 20
+  ERABOOST: False
+  TIME_SERIES_CV: True
+
+MDA:
+  APPLY: True

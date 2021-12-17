@@ -1,0 +1,2 @@
+MODEL:
+  TYPE: "gbdt"

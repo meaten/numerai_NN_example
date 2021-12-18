@@ -3,7 +3,7 @@ Numerai tournament example scripts using pytorch NN, lightGBM and optuna
 > https://numer.ai/tournament
 
 Performance of my model based on this example
-> https://numer.ai/emerald_
+> [numerai model page](https://numer.ai/emerald_)
 
 #Features
 ***

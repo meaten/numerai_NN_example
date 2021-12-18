@@ -5,7 +5,7 @@ Numerai tournament example scripts using pytorch NN, lightGBM and optuna
 Performance of my model based on this example
 > [numerai model page](https://numer.ai/emerald_)
 
-#Features
+# Features
 ***
 * era-boosted train, time-series cross-validation  
 * era-batches training  

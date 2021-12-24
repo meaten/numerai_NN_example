@@ -64,7 +64,6 @@ _C.SOLVER.OPTIMIZER = "radam"  #"sgd", "radam"
 _C.SOLVER.LR = 1e-3
 _C.SOLVER.ITER = 1000
 _C.SOLVER.DECAY_FACTOR = 0.1
-_C.SOLVER.AUG = None
 
 _C.OUTPUT_DIR = "./output/"
 _C.DATASET_DIR = "./dataset/"
@@ -74,7 +73,5 @@ _C.MDA.APPLY = False
 _C.MDA.MODEL = "weights/model.pkl"
 _C.MDA.FEATURE_NUM = 300
 _C.MDA.TEST_SET = "val"
-
-_C.NEUTRALIZE_COEF = 0.25  #currently not functional
 
 _C.LOAD_TUNED = False

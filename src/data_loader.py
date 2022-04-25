@@ -254,14 +254,15 @@ def load_data(cfg: CfgNode, split: str = "train", era: List = None, inference: b
 
 
 def check_train_val_path(cfg, split="train"):
+    napi = NumerAPI()
     parquet_path = os.path.join(
         cfg.DATASET_DIR, f"{split}_fillna.parquet")
     if not os.path.isfile(parquet_path):
         original_parquet_path = os.path.join(
             cfg.DATASET_DIR, f"{split}.parquet")
         if not os.path.isfile(original_parquet_path):
-            dir_path = Path(cfg.DATASET_DIR)
-            fetch_current_dataset(napi=napi, dest_path=dir_path)
+            dir_path = cfg.DATASET_DIR
+            fetch_dataset(napi=napi, dest_path=dir_path)
         data = pd.read_parquet(original_parquet_path)
         data.fillna(0.5, inplace=True)
         data.to_parquet(parquet_path)
@@ -294,10 +295,10 @@ def fetch_dataset(napi: NumerAPI, dest_path: str) -> None:
                  'features.json']
     for filename in filenames:
         napi.download_dataset(
-            filename=filename, dest_path=os.path.join(dest_path, filename))
+            filename=os.path.join("v4", filename), dest_path=os.path.join(dest_path, filename))
 
 
-def fetch_current_dataset(napi: NumerAPI, dest_path: str) -> None:
+def fetch_current_dataset(napi: NumerAPI, dest_path: Path) -> None:
     """fetch tournament dataset of numerai tournament
 
     Args:

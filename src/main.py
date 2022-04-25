@@ -457,7 +457,7 @@ def test(args: argparse.Namespace, cfg: CfgNode) -> None:
     """
     models = load_models(args, cfg)
 
-    napi = create_api()
+    napi = NumerAPI()
 
     validation_data, feature_names = load_data(
         cfg, split="validation", inference=True)
@@ -492,7 +492,7 @@ def create_submission(args: argparse.Namespace, cfg: CfgNode) -> str:
     Returns:
         str: path to the saved prediction
     """
-    napi = create_api()
+    napi = NumerAPI()
     if args.config_file in ["config/example"]:
         n_round = napi.get_current_round()
         path = os.path.join(cfg.DATASET_DIR, f"numerai_dataset_{n_round}", "example_predictions.csv")

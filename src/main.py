@@ -3,8 +3,7 @@ from torch.utils.data.dataloader import DataLoader
 from utils import *
 from model import ModelWithLoss
 from data_loader import numerai_loader, load_example_validation_predictions, load_data, load_riskiest_features
-from torch.optim import SGD
-from torch_optimizer import RAdam
+from torch.optim import SGD, Adam
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from lightgbm import LGBMRegressor
 from sklearn.multioutput import MultiOutputRegressor
@@ -237,8 +236,8 @@ def train_NN(args: argparse.Namespace, cfg: CfgNode, data_loader: DataLoader, mo
         ModelWithLoss: trained NN model
     """
 
-    if cfg.SOLVER.OPTIMIZER == "radam":
-        optimizer = RAdam(filter(lambda p: p.requires_grad, model.parameters()),
+    if cfg.SOLVER.OPTIMIZER == "adam":
+        optimizer = Adam(filter(lambda p: p.requires_grad, model.parameters()),
                           lr=cfg.SOLVER.LR,
                           weight_decay=cfg.MODEL.REG_WEIGHT)
     elif cfg.SOLVER.OPTIMIZER == "sgd":

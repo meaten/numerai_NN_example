@@ -5,6 +5,11 @@ Numerai tournament example scripts using pytorch NN, lightGBM and optuna
 Performance of my model based on this example
 > [numerai model page](https://numer.ai/emerald_)
 
+# Updates
+***
+* 2022/04/25  Faster MLP model (nn.ModuleList -> nn.Sequential)  &  adopt numerai V4 data
+***
+
 # Features
 ***
 * era-boosted train, time-series cross-validation  

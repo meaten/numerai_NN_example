@@ -4,5 +4,5 @@ MODEL:
   ERABOOST: False
   TIME_SERIES_CV: True
 
-MDA:
+FS:
   APPLY: True

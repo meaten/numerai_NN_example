@@ -1,5 +1,5 @@
 MODEL:
   TYPE: "mlp"
 
-MDA:
+FS:
   APPLY: True

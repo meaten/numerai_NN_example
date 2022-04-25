@@ -222,7 +222,7 @@ def load_data(cfg: CfgNode, split: str = "training", era: List = None, inference
             fetch_current_dataset(napi=napi, dest_path=path)
         parquet_path = os.path.join(path, f"numerai_{split}_data.parquet")
 
-    if cfg.MDA.APPLY and not inference:
+    if cfg.FS.APPLY and not inference:
         import pickle
         pkl_path = os.path.join(cfg.OUTPUT_DIR, f"numerai_MDA_feature.pkl")
         if not os.path.isfile(pkl_path):
@@ -292,21 +292,21 @@ def feature_selection(cfg: CfgNode) -> List[str]:
 
     _cfg = cfg.clone()
     _cfg.defrost()
-    _cfg.MDA.APPLY = False
+    _cfg.FS.APPLY = False
 
-    if _cfg.MDA.TEST_SET == "val":
+    if _cfg.FS.TEST_SET == "val":
         validation_data, feature_names = load_data(_cfg, split="validation")
         test_set = validation_data
-    elif _cfg.MDA.TEST_SET == "train":
+    elif _cfg.FS.TEST_SET == "train":
         training_data, feature_names = load_data(_cfg, split="training")
         test_set = training_data
 
     import pickle
-    model = pickle.load(open(_cfg.MDA.MODEL, 'rb'))
+    model = pickle.load(open(_cfg.FS.MODEL, 'rb'))
 
     diff = np.array(MDA(model, feature_names, test_set))
     arg = np.argsort(diff[:, 1])
-    feature_names_select = diff[arg][:, 0].tolist()[:_cfg.MDA.FEATURE_NUM]
+    feature_names_select = diff[arg][:, 0].tolist()[:_cfg.FS.FEATURE_NUM]
 
     print("-----------selected features------------")
     print(feature_names_select)

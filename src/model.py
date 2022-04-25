@@ -9,7 +9,7 @@ current features
 
 """
 from yacs.config import CfgNode
-from typing import Dict, Tuple
+from typing import Dict, Tuple, List
 
 import torch
 import torch.nn as nn
@@ -32,8 +32,8 @@ class ModelWithLoss(nn.Module):
         super(ModelWithLoss, self).__init__()
         
         input_size = numerai_input_size
-        if cfg.MDA.APPLY:
-            input_size = cfg.MDA.FEATURE_NUM
+        if cfg.FS.APPLY:
+            input_size = cfg.FS.FEATURE_NUM
 
         self.fe_model = None
         if cfg.FE.APPLY:
@@ -120,6 +120,10 @@ class MLP(nn.Module):
         num_l = cfg.MODEL.NUM_HIDDEN
         coef = cfg.MODEL.DIM_HIDDEN_FACT
 
+        self.act = choose_activation(cfg.MODEL.ACTIVATION)
+        self.noise = FeatureReversalNoise()
+        self.gaussian_dropout = CoupledGaussianDropout()
+        
         self.residual = cfg.MODEL.RESIDUAL
         self.h_size = [input_size]
         for _ in range(num_s):
@@ -128,25 +132,13 @@ class MLP(nn.Module):
             dim_h = int(dim_h * coef)
         self.h_size.append(dim_o)
         
-        self.layers = nn.ModuleList([nn.Linear(self.h_size[k], self.h_size[k+1]) for k in range(len(self.h_size)-1)])
-        self.drop = nn.Dropout(p=cfg.MODEL.P_DROPOUT)
-        self.act = choose_activation(cfg.MODEL.ACTIVATION)
-        self.noise = FeatureReversalNoise()
-        self.gaussian_dropout = CoupledGaussianDropout()
-        
+        self.layers = make_mlp(self.h_size, self.act, self.residual)
         
     def forward(self, x):
         x = self.noise(x)
         x = self.gaussian_dropout(x)
-        #x = self.drop(x)
         
-        for i in range(0, len(self.layers) - 1):
-            if self.residual and (self.h_size[i] == self.h_size[i+1]):
-                x = self.act(self.layers[i](x)) + x
-            else:
-                x = self.act(self.layers[i](x))
-            
-        x = self.layers[-1](x)
+        x = self.layers(x)
         return x
     
 
@@ -158,8 +150,8 @@ class FEModel(nn.Module):
         super(FEModel, self).__init__()
         
         input_size = numerai_input_size
-        if cfg.MDA.APPLY:
-            input_size = cfg.MDA.FEATURE_NUM
+        if cfg.FS.APPLY:
+            input_size = cfg.FS.FEATURE_NUM
         
         if cfg.FE.TYPE == "autoencoder":
             self.model = AE(cfg, input_size=input_size)
@@ -209,13 +201,14 @@ class AE(nn.Module):
             
         self.h_size_dec = []    
         self.h_size_dec.extend(list(reversed(self.h_size_enc)))
+        self.act = nn.LeakyReLU(0.01)
         
-        self.enc = nn.ModuleList([nn.Linear(self.h_size_enc[k], self.h_size_enc[k+1]) for k in range(len(self.h_size_enc)-1)])
-        self.dec = nn.ModuleList([nn.Linear(self.h_size_dec[k], self.h_size_dec[k+1]) for k in range(len(self.h_size_dec)-1)])
+        self.enc = make_mlp(self.h_size_enc, self.act, residual=False)
+        self.dec = make_mlp(self.h_size_dec, self.act, residual=False)
         self.drop = nn.Dropout(p=cfg.FE.P_DROPOUT)
         self.noise = FeatureReversalNoise()
         self.gaussian_dropout = CoupledGaussianDropout()
-        self.act = nn.LeakyReLU(0.01)
+        
 
     def forward(self, x):
         feature = self.encode(x)
@@ -228,19 +221,37 @@ class AE(nn.Module):
         x = self.gaussian_dropout(x)
         #x = self.drop(x)
         
-        for i in range(0, len(self.enc) - 1):
-            x = self.act(self.enc[i](x))
-            
-        feature = self.enc[-1](x)
+        feature = self.enc(x)
         return feature
 
     def decode(self, feature):        
-        for i in range(0, len(self.dec) - 1):
-            feature = self.act(self.dec[i](feature))
-            
-        x_ = self.dec[-1](feature)
-        
+        x_ = self.dec(feature)
         return x_
+    
+    
+def make_mlp(h_size: List, act: nn.Module, residual: bool):
+    layers = []
+    for k in range(len(h_size)-2):
+        module = nn.Sequential(
+            nn.Linear(h_size[k], h_size[k+1]),
+            act)
+        
+        if residual and h_size[k] == h_size[k+1]:
+            layers.append(Residual(module))
+        else:
+            layers.append(module)
+    layers.append(nn.Linear(h_size[-2], h_size[-1]))
+    layers = nn.Sequential(*layers)
+    return layers
+
+
+class Residual(nn.Module):
+    def __init__(self, module):
+        super().__init__()
+        self.module = module
+
+    def forward(self, inputs):
+        return self.module(inputs) + inputs
 
 
 class FeatureReversalNoise(nn.Module):

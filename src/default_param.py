@@ -52,15 +52,21 @@ _C.FE.TYPE = "autoencoder" #"autoencoder"
 _C.FE.NUM_HIDDEN = 2
 _C.FE.DIM_HIDDEN = 128
 _C.FE.DIM_HIDDEN_FACT = 1 / 2
-_C.FE.DIM_OUT = 32
+_C.FE.DIM_OUT = 100
 _C.FE.P_DROPOUT = 0.1
 _C.FE.PRED_LOSS = "bce" #"mse", "l1", "bce"
 _C.FE.REG_TYPE = "l1" #"l1", "l2"
 _C.FE.REG_WEIGHT = 0.000001
 
+_C.FE.NUM_STAGE_HEAD = 1
+_C.FE.NUM_HIDDEN_HEAD = 2
+_C.FE.DIM_HIDDEN_HEAD = 128
+_C.FE.DIM_HIDDEN_FACT_HEAD = 1 / 2
+
 _C.SOLVER = CN()
 _C.SOLVER.NUM_WORKERS = 4
-_C.SOLVER.OPTIMIZER = "radam"  #"sgd", "radam"
+_C.SOLVER.ERA_BATCH_SIZE = 8
+_C.SOLVER.OPTIMIZER = "adam"  #"sgd", "adam"
 _C.SOLVER.LR = 1e-3
 _C.SOLVER.ITER = 1000
 _C.SOLVER.DECAY_FACTOR = 0.1
@@ -68,10 +74,13 @@ _C.SOLVER.DECAY_FACTOR = 0.1
 _C.OUTPUT_DIR = "./output/"
 _C.DATASET_DIR = "./dataset/"
 
-_C.MDA = CN()
-_C.MDA.APPLY = False
-_C.MDA.MODEL = "weights/model.pkl"
-_C.MDA.FEATURE_NUM = 300
-_C.MDA.TEST_SET = "val"
+_C.FS = CN()
+_C.FS.APPLY = False
+_C.FS.MODEL = "weights/model.pkl"
+_C.FS.FEATURE_NUM = 300
+_C.FS.TEST_SET = "train" # "train", "val"
+_C.FS.ALGORITHM = "mda" # "boruta-shap", "mda"
+
+_C.USE_VAL_SET_FOR_TRAIN = True # This also affects feature selection
 
 _C.LOAD_TUNED = False

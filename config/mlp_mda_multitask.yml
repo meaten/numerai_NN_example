@@ -3,5 +3,5 @@ MODEL:
   DIM_OUT: 20
   ERABOOST: True
 
-MDA:
+FS:
   APPLY: True

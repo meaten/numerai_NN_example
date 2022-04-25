@@ -14,6 +14,7 @@ current features
 import os
 import pickle
 from tqdm import tqdm
+from pathlib import Path
 import numpy as np
 import pandas as pd
 from numerapi import NumerAPI
@@ -22,9 +23,9 @@ from typing import List, Tuple
 from yacs.config import CfgNode
 from argparse import Namespace
 
+import torch
 from torch.utils.data import Dataset
-from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
-from torch.utils.data.sampler import BatchSampler
+from torch.utils.data import DataLoader
 
 from utils import get_biggest_change_features
 
@@ -43,13 +44,13 @@ def numerai_loader(cfg: CfgNode, split: str = "train", rand: bool = True, era: L
     """
     dataset = numerai_dataset(cfg, split=split, era=era)
 
-    sampler = RandomSampler(dataset) if rand else SequentialSampler(dataset)
-    batch_sampler = BatchSampler(sampler=sampler,
-                                 batch_size=1,
-                                 drop_last=False)
     loader = DataLoader(
-        dataset, num_workers=cfg.SOLVER.NUM_WORKERS, batch_sampler=batch_sampler)
-    
+        dataset, 
+        shuffle=rand,
+        batch_size=cfg.SOLVER.ERA_BATCH_SIZE,
+        num_workers=cfg.SOLVER.NUM_WORKERS,
+        collate_fn=collate_fn,
+        pin_memory=True)
     return loader
 
 
@@ -66,8 +67,8 @@ def numerai_dataset(cfg: CfgNode, split: str = "train", era: List = None) -> Dat
     """
     target_names = parse_targets(cfg)
     if split == "train":
-        training_data, feature_names = load_data(cfg, era=era)
-        dataset = SimpleDataset(df=training_data,
+        train_data, feature_names = load_data(cfg, era=era)
+        dataset = SimpleDataset(df=train_data,
                                 features=feature_names,
                                 targets=target_names)
     if split == "val":
@@ -86,32 +87,41 @@ def numerai_dataset(cfg: CfgNode, split: str = "train", era: List = None) -> Dat
 
 
 class SimpleDataset(Dataset):
-    """
-    Simple dataset for era batches
-    """
-    def __init__(self, df: pd.DataFrame, features: List[str], targets: List[str]):
-        """__init__ function
+    def __init__(self, df, features, targets):
 
-        Args:
-            df (pd.DataFrame): dataframe
-            features (List[str]): list of feature names
-            targets (List[str]): list of target names
-        """
         self.df = df
         self.features = features
         self.targets = targets
         self.eras = df.era.unique()
+        
+        self.batches_x = {era : self.df.loc[self.df.era.isin([era]), self.features].values - 0.5 for era in self.eras}
+        self.batches_y = {era : self.df.loc[self.df.era.isin([era]), self.targets].values for era in self.eras}
 
     def __len__(self):
         return len(self.eras)
 
     def __getitem__(self, idx):
-        era = [self.eras[idx]]
+        era = self.eras[idx]
 
-        x = self.df.loc[self.df.era.isin(era), self.features].values - 0.5
-        y = self.df.loc[self.df.era.isin(era), self.targets].values
+        #x = self.df.loc[self.df.era.isin(era), self.features].values - 0.5
+        #y = self.df.loc[self.df.era.isin(era), self.targets].values
+        
+        x = self.batches_x[era]
+        y = self.batches_y[era]
 
-        return {"input": x, "gt": y}
+        return [x, y]
+    
+
+def collate_fn(data):
+    x_list, y_list = zip(*data)
+    
+    x = np.concatenate(x_list, axis=0, dtype=np.float32)[None, :, :]
+    y = np.concatenate(y_list, axis=0, dtype=np.float32)[None, :, :]
+    
+    x = torch.from_numpy(x)
+    y = torch.from_numpy(y)
+    
+    return {"input": x, "gt": y}
 
 
 def parse_targets(cfg: CfgNode) -> List[str]:
@@ -126,20 +136,37 @@ def parse_targets(cfg: CfgNode) -> List[str]:
     if cfg.MODEL.DIM_OUT == 1:
         target_names = ["target"]
     elif cfg.MODEL.DIM_OUT == 3:
-        target_names = ["target", "target_nomi_60", "target_jerome_20"]
+        target_names = ["target", "target_nomi_v4_60", "target_jerome_v4_20"]
     elif cfg.MODEL.DIM_OUT == 20:
-        target_names = ["target_nomi_20", "target_nomi_60",
-                        "target_jerome_20", "target_jerome_60",
-                        "target_janet_20", "target_janet_60",
-                        "target_ben_20", "target_ben_60",
-                        "target_alan_20", "target_alan_60",
-                        "target_paul_20", "target_paul_60",
-                        "target_george_20", "target_george_60",
-                        "target_william_20", "target_william_60",
-                        "target_arthur_20", "target_arthur_60",
-                        "target_thomas_20", "target_thomas_60"]
+        target_names = ["target_nomi_v4_20", "target_nomi_v4_60",
+                        "target_jerome_v4_20", "target_jerome_v4_60",
+                        "target_janet_v4_20", "target_janet_v4_60",
+                        "target_ben_v4_20", "target_ben_v4_60",
+                        "target_alan_v4_20", "target_alan_v4_60",
+                        "target_paul_v4_20", "target_paul_v4_60",
+                        "target_george_v4_20", "target_george_v4_60",
+                        "target_william_v4_20", "target_william_v4_60",
+                        "target_arthur_v4_20", "target_arthur_v4_60",
+                        "target_thomas_v4_20", "target_thomas_v4_60"]
     assert len(target_names) == cfg.MODEL.DIM_OUT
     return target_names
+
+
+def load_example_live_predictions(napi: NumerAPI, cfg):
+    """load example live predictions for submission
+
+    Args:
+        napi (NumerAPI): Numerai API instance
+        cfg (CfgNode): cfg for parameters
+
+    Returns:
+        pd.DataFrame: live prediction
+    """
+    n_round = napi.get_current_round()
+    dir_path = Path(cfg.DATASET_DIR) / f"numerai_live_{n_round}"
+    live_pred = pd.read_parquet(
+        dir_path / "live_example_preds.parquet")
+    return live_pred
 
 
 def load_example_validation_predictions(napi: NumerAPI, cfg: CfgNode) -> pd.DataFrame:
@@ -152,12 +179,10 @@ def load_example_validation_predictions(napi: NumerAPI, cfg: CfgNode) -> pd.Data
     Returns:
         pd.DataFrame: validation prediction
     """
-    n_round = napi.get_current_round()
-    path_cur_data = os.path.join(cfg.DATASET_DIR, f"numerai_dataset_{n_round}")
-
-    validation_pred = pd.read_parquet(os.path.join(
-        path_cur_data, "example_validation_predictions.parquet"))
-    return validation_pred
+    dataset_dir = Path(cfg.DATASET_DIR)
+    live_pred = pd.read_parquet(
+        dataset_dir / "validation_example_preds.parquet")
+    return live_pred
 
 
 def load_riskiest_features(napi: NumerAPI, args: Namespace, cfg: CfgNode) -> List[str]:
@@ -173,9 +198,9 @@ def load_riskiest_features(napi: NumerAPI, args: Namespace, cfg: CfgNode) -> Lis
     """
     pkl_path = os.path.join(cfg.DATASET_DIR, "riskiest_features.pkl")
     if not os.path.exists(pkl_path):
-        training_data, feature_names = load_data(
-            napi, cfg, split="training")
-        all_feature_corrs = training_data.groupby("era").apply(
+        train_data, feature_names = load_data(
+            napi, cfg, split="train")
+        all_feature_corrs = train_data.groupby("era").apply(
             lambda d: d[feature_names].corrwith(d["target"]))
         riskiest_features = get_biggest_change_features(all_feature_corrs, 50)
 
@@ -188,56 +213,35 @@ def load_riskiest_features(napi: NumerAPI, args: Namespace, cfg: CfgNode) -> Lis
     return riskiest_features
 
 
-def load_data(cfg: CfgNode, split: str = "training", era: List = None, inference: bool = False) -> Tuple[pd.DataFrame, List[str]]:
+def load_data(cfg: CfgNode, split: str = "train", era: List = None, inference: bool = False) -> Tuple[pd.DataFrame, List[str]]:
     """load pandas df
     load feature subset if feature selection applied
 
     Args:
         cfg (CfgNode): cfg for parameter
-        split (str, optional): dataset split ["training", "validation", "tournament"]. Defaults to "training".
+        split (str, optional): dataset split ["train", "validation", "tournament"]. Defaults "train".
         era (List, optional): era list for eraboost training. Defaults to None.
         inference (bool, optional): inference flag. Defaults to False.
 
     Returns:
         Tuple[pd.DataFrame, List[str]]: df and list of feature names
     """
-    if split in ["training", "validation"]:
-        parquet_path = os.path.join(
-            cfg.DATASET_DIR, f"numerai_{split}_data_dropna.parquet")
-        if not os.path.isfile(parquet_path):
-            original_parquet_path = os.path.join(
-                cfg.DATASET_DIR, f"numerai_{split}_data.parquet")
-            if not os.path.isfile(original_parquet_path):
-                napi = NumerAPI()
-                fetch_dataset(napi=napi, dest_path=cfg.DATASET_DIR)
-            data = pd.read_parquet(original_parquet_path)
-            data.dropna(inplace=True)
-            data.to_parquet(parquet_path)
+    if split in ["train", "validation"]:
+        if cfg.USE_VAL_SET_FOR_TRAIN:
+            parquet_path = [check_train_val_path(cfg, split="train"),
+                            check_train_val_path(cfg, split='validation')]
+        else:
+            parquet_path = [check_train_val_path(cfg, split=split)]
     elif split == "tournament":
-        napi = NumerAPI()
-        n_round = napi.get_current_round()
-        path = os.path.join(cfg.DATASET_DIR, f"numerai_dataset_{n_round}")
-        if not os.path.isdir(path):
-            print("Dataset of the current round is not found. Fetching data...")
-            fetch_current_dataset(napi=napi, dest_path=path)
-        parquet_path = os.path.join(path, f"numerai_{split}_data.parquet")
-
+        parquet_path = [check_live_path(cfg)]
+        
     if cfg.FS.APPLY and not inference:
-        import pickle
-        pkl_path = os.path.join(cfg.OUTPUT_DIR, f"numerai_MDA_feature.pkl")
-        if not os.path.isfile(pkl_path):
-            feature_names = feature_selection(cfg)
-            with open(pkl_path, "wb") as f:
-                pickle.dump(feature_names, f)
-
-        with open(pkl_path, "rb") as f:
-            feature_names = pickle.load(f)
-
+        feature_names = feature_selection(cfg)
         columns = ["era", "data_type"] + feature_names + parse_targets(cfg)
     else:
         columns = None
-
-    data = pd.read_parquet(parquet_path, columns=columns)
+    
+    data = pd.concat([pd.read_parquet(p, columns=columns) for p in parquet_path])
 
     feature_names = [
         f for f in data.columns if f.startswith("feature")
@@ -249,16 +253,45 @@ def load_data(cfg: CfgNode, split: str = "training", era: List = None, inference
     return data, feature_names
 
 
+def check_train_val_path(cfg, split="train"):
+    parquet_path = os.path.join(
+        cfg.DATASET_DIR, f"{split}_fillna.parquet")
+    if not os.path.isfile(parquet_path):
+        original_parquet_path = os.path.join(
+            cfg.DATASET_DIR, f"{split}.parquet")
+        if not os.path.isfile(original_parquet_path):
+            dir_path = Path(cfg.DATASET_DIR)
+            fetch_current_dataset(napi=napi, dest_path=dir_path)
+        data = pd.read_parquet(original_parquet_path)
+        data.fillna(0.5, inplace=True)
+        data.to_parquet(parquet_path)
+    
+    return parquet_path
+
+
+def check_live_path(cfg):
+    napi = NumerAPI()
+    n_round = napi.get_current_round()
+    dir_path = Path(cfg.DATASET_DIR) / f"numerai_live_{n_round}"
+    if not dir_path.exists():
+        print("Fetching live data...")
+        fetch_current_dataset(napi=napi, dest_path=dir_path)
+    parquet_path = dir_path / "live.parquet"
+    return parquet_path
+
+
 def fetch_dataset(napi: NumerAPI, dest_path: str) -> None:
-    """fetch training and validation datasets of numerai tournament
+    """fetch train and validation datasets of numerai tournament
 
     Args:
         napi (NumerAPI): Numerai API instance
         dest_path (str): path to save datasets
     """
     os.makedirs(dest_path, exist_ok=True)
-    filenames = ['numerai_training_data.parquet',
-                 'numerai_validation_data.parquet']
+    filenames = ['train.parquet',
+                 'validation.parquet',
+                 'validation_example_preds.parquet',
+                 'features.json']
     for filename in filenames:
         napi.download_dataset(
             filename=filename, dest_path=os.path.join(dest_path, filename))
@@ -272,11 +305,10 @@ def fetch_current_dataset(napi: NumerAPI, dest_path: str) -> None:
         dest_path (str): [description]
     """
     os.makedirs(dest_path, exist_ok=True)
-    filenames = ['numerai_tournament_data.parquet',
-                 'example_predictions.csv', 'example_validation_predictions.parquet']
+    filenames = ['live.parquet', "live_example_preds.parquet"]
     for filename in filenames:
         napi.download_dataset(
-            filename=filename, dest_path=os.path.join(dest_path, filename))
+            filename=os.path.join("v4", filename), dest_path=str(dest_path / filename))
 
 
 def feature_selection(cfg: CfgNode) -> List[str]:
@@ -288,29 +320,38 @@ def feature_selection(cfg: CfgNode) -> List[str]:
     Returns:
         List: list of selected feature names
     """
-    print(f"Start feature selection...")
-
-    _cfg = cfg.clone()
-    _cfg.defrost()
-    _cfg.FS.APPLY = False
-
-    if _cfg.FS.TEST_SET == "val":
-        validation_data, feature_names = load_data(_cfg, split="validation")
-        test_set = validation_data
-    elif _cfg.FS.TEST_SET == "train":
-        training_data, feature_names = load_data(_cfg, split="training")
-        test_set = training_data
-
     import pickle
-    model = pickle.load(open(_cfg.FS.MODEL, 'rb'))
+    
+    pkl_path = os.path.join(cfg.DATASET_DIR, f"numerai_selected_features_{cfg.FS.ALGORITHM}_{cfg.FS.TEST_SET}.pkl")
+    if not os.path.isfile(pkl_path):
+        print(f"Start feature selection...")
 
-    diff = np.array(MDA(model, feature_names, test_set))
-    arg = np.argsort(diff[:, 1])
-    feature_names_select = diff[arg][:, 0].tolist()[:_cfg.FS.FEATURE_NUM]
+        _cfg = cfg.clone()
+        _cfg.defrost()
+        _cfg.FS.APPLY = False
 
-    print("-----------selected features------------")
-    print(feature_names_select)
+        if _cfg.FS.TEST_SET == "val":
+            validation_data, feature_names = load_data(_cfg, split="validation")
+            test_set = validation_data
+        elif _cfg.FS.TEST_SET == "train":
+            train_data, feature_names = load_data(_cfg, split="train")
+            test_set = train_data
 
+        if cfg.FS.ALGORITHM == "mda":
+            model = pickle.load(open(_cfg.FS.MODEL, 'rb'))
+            diff = np.array(MDA(model, feature_names, test_set))
+            arg = np.argsort(diff[:, 1])
+            feature_names_select = diff[arg][:, 0].tolist()[:_cfg.FS.FEATURE_NUM]
+
+        print("-----------selected features------------")
+        print(feature_names_select)
+        
+        with open(pkl_path, "wb") as f:
+            pickle.dump(feature_names_select, f)
+
+    with open(pkl_path, "rb") as f:
+        feature_names_select = pickle.load(f)
+    
     return feature_names_select
 
 

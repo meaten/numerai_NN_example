@@ -13,9 +13,8 @@ from typing import Dict, Tuple, List
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
-numerai_input_size = 1050
+numerai_input_size = 1191
 
 class ModelWithLoss(nn.Module):
     """Pytorch NN model with loss functions

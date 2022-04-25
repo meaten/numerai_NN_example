@@ -51,7 +51,7 @@ def era_boost_train(args: argparse.Namespace, cfg: CfgNode) -> None:
 
     pred_cols = set()
     ensemble_col = "ensemble"
-    df_train = load_data(cfg, split="training", inference=True)[0]
+    df_train = load_data(cfg, split="train", inference=True)[0]
     for i in range(cfg.MODEL.ERABOOST_ITER):
         print(f"ERABOOST epoch {i+1}/{cfg.MODEL.ERABOOST_ITER}")
         data_loader = {"train": numerai_loader(cfg, "train", era=worst_eras)}
@@ -97,7 +97,7 @@ def time_series_CV(args: argparse.Namespace, cfg: CfgNode, save_model: bool = Tr
     models = []
 
     cv_scores = []
-    df_train = load_data(cfg, split="training")[0]
+    df_train = load_data(cfg, split="train")[0]
     eras = df_train.era.unique()
     del df_train
     num_era = int(len(eras) / (num_folds + 1)) + 1
@@ -110,7 +110,7 @@ def time_series_CV(args: argparse.Namespace, cfg: CfgNode, save_model: bool = Tr
         models.append(train(args=args, cfg=cfg,
                       data_loader=data_loader, model=Build_Model(args, cfg)))
         pred = inference_on_data(cfg=cfg, model=models[-1], data_loader=data_loader["val"])
-        df_train = load_data(cfg, split="training", era=valid_eras, inference=True)[0]
+        df_train = load_data(cfg, split="train", era=valid_eras, inference=True)[0]
         cur_col = f"prediction"
         df_train[cur_col] = pred
         df_train[cur_col] = df_train.groupby(ERA_COL).apply(

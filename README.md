@@ -4,7 +4,7 @@ Numerai tournament example scripts using pytorch NN, lightGBM and optuna
 
 Performance of my model based on this example
 > [numerai model page](https://numer.ai/emerald_)
-
+> [numerai model page](https://numer.ai/sapphire_)
 # Updates
 ***
 * 2022/04/25  Faster MLP model (nn.ModuleList -> nn.Sequential)  &  adopt numerai V4 data
